@@ -1,11 +1,12 @@
 """
 视觉 LLM 客户端模块
 """
+
 import base64
 from typing import Optional
 from openai import OpenAI
 
-from config import LLMConfig
+from claweb.core.config import LLMConfig
 
 
 class VisionLLMClient:
@@ -26,8 +27,8 @@ class VisionLLMClient:
 - TYPE [ID] "文本内容" - 在输入框中输入文本
 - SCROLL UP/DOWN - 向上或向下滚动页面
 - GOTO "URL" - 导航到指定URL
-- WAIT 秒数 - 等待指定秒数（如 WAIT 5）
-- PAUSE - 暂停执行，等待用户手动完成操作（用于验证码、手机验证、二维码登录等场景）
+- WAIT 秒数 - 等待指定秒数
+- PAUSE - 暂停执行，等待用户手动完成操作
 - DONE - 任务完成
 
 重要规则：

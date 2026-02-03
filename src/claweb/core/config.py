@@ -1,6 +1,7 @@
 """
 Web Agent 配置模块
 """
+
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -39,10 +40,10 @@ class DatabaseConfig:
 @dataclass
 class ExplorationConfig:
     """探索配置"""
-    max_pages: int          # 最大探索页面数
-    max_depth: int          # 最大探索深度
+    max_pages: int              # 最大探索页面数
+    max_depth: int              # 最大探索深度
     max_actions_per_page: int   # 每页最大探索操作数
-    screenshot_dir: str     # 截图保存目录
+    screenshot_dir: str         # 截图保存目录
 
 
 @dataclass

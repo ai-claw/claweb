@@ -1,19 +1,20 @@
 """
 Web Agent 核心模块 - 带记忆系统
 """
+
 import asyncio
 import json
 from typing import Optional, Callable, Dict, List
 from urllib.parse import urlparse
 
-from config import Config, load_config
-from browser import BrowserManager
-from llm_client import VisionLLMClient
-from page_tagger import PageTagger
-from action_executor import ActionExecutor
-from database import DatabaseInterface, create_database
-from explorer import SiteExplorer, PageAnalyzer, MemoryBasedPlanner
-from models import Site, Page, TaskPath, ActionType
+from claweb.core.config import Config, load_config
+from claweb.core.browser import BrowserManager
+from claweb.llm.client import VisionLLMClient
+from claweb.tagger.page_tagger import PageTagger
+from claweb.executor.action_executor import ActionExecutor
+from claweb.storage.database import DatabaseInterface, create_database
+from claweb.explorer.explorer import SiteExplorer, PageAnalyzer, MemoryBasedPlanner
+from claweb.storage.models import Site, Page, TaskPath, ActionType
 
 
 class WebAgent:
@@ -34,7 +35,7 @@ class WebAgent:
         
         self._running = False
         self._max_steps = 20
-        self._use_memory = True  # 是否使用记忆系统
+        self._use_memory = True
 
     async def start(self, use_memory: bool = True) -> None:
         """启动 Agent"""
@@ -44,7 +45,6 @@ class WebAgent:
         self.action_executor = ActionExecutor(page)
         
         if use_memory:
-            # 初始化记忆系统
             db_config = {
                 'type': self.config.database.type,
                 'path': self.config.database.path,
@@ -75,20 +75,13 @@ class WebAgent:
         await self.browser_manager.goto(url)
         
         if self._use_memory and self.db:
-            # 更新当前网站
             domain = urlparse(url).netloc
             self.current_site = self.db.get_or_create_site(domain)
         
         print(f"已导航到: {url}")
 
     async def explore(self, url: str, site_name: str = "") -> None:
-        """
-        探索网站并学习
-        
-        Args:
-            url: 起始 URL
-            site_name: 网站名称（可选）
-        """
+        """探索网站并学习"""
         if not self._use_memory:
             print("错误: 探索功能需要启用记忆系统")
             return
@@ -105,16 +98,7 @@ class WebAgent:
         instruction: str,
         on_step: Optional[Callable[[int, str, str], None]] = None,
     ) -> str:
-        """
-        执行用户指令 - 优先使用记忆
-        
-        Args:
-            instruction: 用户指令
-            on_step: 步骤回调函数 (step_number, action, result)
-            
-        Returns:
-            执行结果描述
-        """
+        """执行用户指令 - 优先使用记忆"""
         self._running = True
         self.llm_client.reset_conversation()
         
@@ -127,7 +111,6 @@ class WebAgent:
         if self._use_memory and self.current_site and self.planner:
             print("\n📚 查询记忆中...")
             
-            # 获取当前页面信息
             screenshot = await self.browser_manager.screenshot()
             page_info = await self.page_analyzer.analyze_page(screenshot)
             
@@ -144,14 +127,12 @@ class WebAgent:
                 for step in plan.get("plan", []):
                     print(f"   {step['step']}. {step['action_detail']}")
                 
-                # 按规划执行
                 return await self._execute_with_plan(plan, instruction, on_step)
             else:
                 print("❌ 记忆不足，使用实时分析模式")
                 if plan.get("unknown_steps"):
                     print(f"   需要探索: {plan.get('unknown_steps')}")
         
-        # 无记忆或记忆不足，使用原有的实时分析模式
         return await self._execute_without_memory(instruction, on_step)
 
     async def _execute_with_plan(
@@ -165,7 +146,6 @@ class WebAgent:
         
         for step_info in steps:
             step_num = step_info.get("step", 0)
-            action_type = step_info.get("action_type", "click")
             target_desc = step_info.get("target_description", "")
             action_detail = step_info.get("action_detail", "")
             
@@ -175,7 +155,6 @@ class WebAgent:
             screenshot = await self.browser_manager.screenshot()
             page_text, tag_to_xpath = await self.page_tagger.tag_page(page)
             
-            # 让 LLM 根据目标描述找到具体元素
             find_element_prompt = f"""当前页面元素:
 {page_text}
 
@@ -201,7 +180,6 @@ class WebAgent:
                 on_step(step_num, action, result)
             
             if done:
-                # 记录成功的任务路径
                 if self.db and self.current_site:
                     self._record_successful_task(instruction, plan)
                 return f"任务完成，共执行 {step_num} 步（使用记忆）"
@@ -215,9 +193,9 @@ class WebAgent:
         instruction: str,
         on_step: Optional[Callable[[int, str, str], None]] = None
     ) -> str:
-        """无记忆模式执行任务（原有逻辑）"""
+        """无记忆模式执行任务"""
         step = 0
-        action_history = []  # 记录操作历史
+        action_history = []
 
         while self._running and step < self._max_steps:
             step += 1
@@ -243,7 +221,6 @@ class WebAgent:
 
             print(f"[步骤 {step}] 执行结果: {result}")
             
-            # 记录操作
             action_history.append({
                 "step": step,
                 "url": current_url,
@@ -255,7 +232,6 @@ class WebAgent:
                 on_step(step, action, result)
 
             if done:
-                # 记录成功的任务路径
                 if self._use_memory and self.db and self.current_site:
                     self._record_task_from_history(instruction, action_history)
                 return f"任务完成，共执行 {step} 步"
@@ -265,7 +241,7 @@ class WebAgent:
         return f"达到最大步数 {self._max_steps}，任务未完成"
 
     def _record_successful_task(self, instruction: str, plan: Dict) -> None:
-        """记录成功的任务（从规划执行）"""
+        """记录成功的任务"""
         try:
             task_path = TaskPath(
                 site_id=self.current_site.id,
@@ -322,10 +298,10 @@ class WebAgent:
         print("命令:")
         print("  goto <url>  - 导航到指定网址")
         print("  explore     - 探索当前网站并学习")
-        print("  do <指令>   - 执行自然语言指令（自动使用记忆）")
+        print("  do <指令>   - 执行自然语言指令")
         print("  memory      - 显示当前网站的记忆统计")
         print("  screenshot  - 保存当前截图")
-        print("  wait        - 等待你手动操作浏览器（如登录验证）")
+        print("  wait        - 等待手动操作浏览器")
         print("  quit        - 退出")
         print("=" * 50)
 
@@ -345,7 +321,7 @@ class WebAgent:
                 elif user_input.lower() == "explore":
                     page = self.browser_manager.page
                     if page:
-                        site_name = input("网站名称（可选，直接回车跳过）: ").strip()
+                        site_name = input("网站名称（可选）: ").strip()
                         await self.explore(page.url, site_name)
                     else:
                         print("请先使用 goto 命令打开一个网站")
@@ -365,12 +341,12 @@ class WebAgent:
                     print("截图已保存到 screenshot.png")
 
                 elif user_input.lower() == "wait":
-                    print("请在浏览器中完成操作（如登录验证）...")
+                    print("请在浏览器中完成操作...")
                     input("完成后按 Enter 继续...")
                     print("继续")
 
                 else:
-                    print("未知命令，请使用 goto/explore/do/memory/screenshot/wait/quit")
+                    print("未知命令")
 
             except KeyboardInterrupt:
                 print("\n中断")

@@ -1,8 +1,9 @@
 """
 Tarsier 页面标记模块
-使用 Tarsier 的标签功能获取元素映射，不依赖 OCR
+使用 Tarsier 的标签功能获取元素映射
 """
-from typing import Dict, Tuple, Optional, Any
+
+from typing import Dict, Tuple, Optional
 from playwright.async_api import Page
 
 
@@ -28,41 +29,30 @@ class PageTagger:
         return self._tarsier
 
     async def tag_page(self, page: Page) -> Tuple[Optional[bytes], Dict[int, str]]:
-        """
-        为页面添加标签并返回标记后的截图和标签映射
-        
-        Returns:
-            Tuple[Optional[bytes], Dict[int, str]]: (标记后的截图字节, 标签ID到XPath的映射)
-        """
+        """为页面添加标签并返回标记后的截图和标签映射"""
         try:
             tarsier = self._get_tarsier()
             
-            # 使用 page_to_image 获取截图和标签映射，保持标签显示
             screenshot_base64, tag_metadata = await tarsier.page_to_image(
                 page,
                 tag_text_elements=True,
-                keep_tags_showing=True,  # 保持标签在页面上显示
+                keep_tags_showing=True,
             )
             
-            # 从 TagMetadata 中提取 xpath 映射
             tag_to_xpath: Dict[int, str] = {}
             
             for tag_id, meta in tag_metadata.items():
                 tag_to_xpath[tag_id] = meta["xpath"]
             
-            # 将 base64 转换为字节，或者直接获取新截图
             import base64
             if isinstance(screenshot_base64, str):
-                # 如果是 base64 字符串，解码为字节
                 try:
                     screenshot_bytes = base64.b64decode(screenshot_base64)
                 except Exception:
-                    # 如果解码失败，直接截图
                     screenshot_bytes = await page.screenshot(type="png")
             elif isinstance(screenshot_base64, bytes):
                 screenshot_bytes = screenshot_base64
             else:
-                # 其他情况，直接截图（带标签的页面）
                 screenshot_bytes = await page.screenshot(type="png")
             
             return screenshot_bytes, tag_to_xpath
@@ -72,7 +62,7 @@ class PageTagger:
             return await self._fallback_tag_page(page)
 
     async def _fallback_tag_page(self, page: Page) -> Tuple[Optional[bytes], Dict[int, str]]:
-        """备用方案：直接通过 JavaScript 提取页面元素并生成映射"""
+        """备用方案：通过 JavaScript 提取页面元素"""
         try:
             result = await page.evaluate("""
                 () => {
@@ -134,8 +124,6 @@ class PageTagger:
             """)
             
             tag_to_xpath = {int(k): v for k, v in result['xpaths'].items()}
-            
-            # 获取截图（备用方案没有标记，但也返回截图）
             screenshot_bytes = await page.screenshot(type="png")
             
             return screenshot_bytes, tag_to_xpath
@@ -153,5 +141,5 @@ class PageTagger:
             pass
 
     async def cleanup(self, page: Page) -> None:
-        """清理标签（remove_tags 的别名）"""
+        """清理标签"""
         await self.remove_tags(page)

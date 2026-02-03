@@ -7,18 +7,17 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Set
-from urllib.parse import urlparse, urljoin
+from typing import Dict, List, Optional, Set
+from urllib.parse import urlparse
 
 from playwright.async_api import Page
 
-from config import Config
-from browser import BrowserManager
-from page_tagger import PageTagger
-from llm_client import VisionLLMClient
-from database import DatabaseInterface, create_database
-from models import (
+from claweb.core.config import Config
+from claweb.core.browser import BrowserManager
+from claweb.tagger.page_tagger import PageTagger
+from claweb.llm.client import VisionLLMClient
+from claweb.storage.database import DatabaseInterface
+from claweb.storage.models import (
     Site, Page as PageModel, Element, Action, ExplorationLog,
     PageType, ElementType, ActionType
 )
@@ -32,30 +31,29 @@ class PageAnalyzer:
 {
     "page_type": "页面类型，可选: login/home/list/detail/form/search/settings/error/auth/dashboard/unknown",
     "page_description": "一句话描述这个页面的功能",
-    "key_features": ["页面的关键特征，如：有搜索框、有导航栏、有表格等"],
+    "key_features": ["页面的关键特征"],
     "has_sidebar_nav": true/false,
-    "sidebar_nav_items": ["侧边栏导航菜单项名称列表，如：数据总览、任务管理等"],
+    "sidebar_nav_items": ["侧边栏导航菜单项名称列表"],
     "important_elements": [
         {
-            "semantic_name": "元素的语义名称，如：登录按钮、用户名输入框",
+            "semantic_name": "元素的语义名称",
             "element_type": "button/link/input/select/checkbox/nav_item/other",
             "text_content": "元素显示的文本",
-            "position": "位置描述，如：顶部导航栏、页面中央、左侧边栏",
+            "position": "位置描述",
             "importance": 1-10的重要性评分,
             "is_nav_menu": true/false,
-            "action_suggestion": "建议的操作，如：点击进入详情、输入搜索关键词"
+            "action_suggestion": "建议的操作"
         }
     ],
-    "suggested_explorations": ["建议探索的操作，优先级从高到低"]
+    "suggested_explorations": ["建议探索的操作"]
 }
 
 注意：
-1. important_elements 只包含值得交互的元素（按钮、链接、输入框等）
+1. important_elements 只包含值得交互的元素
 2. 忽略纯装饰性元素
 3. 如果看到登录/验证码页面，page_type 设为 auth
-4. 如果有侧边栏导航菜单，has_sidebar_nav 设为 true，并列出所有菜单项
-5. 导航菜单项的 is_nav_menu 设为 true，importance 设为 9-10
-6. suggested_explorations 应该优先包含导航菜单的探索"""
+4. 如果有侧边栏导航菜单，has_sidebar_nav 设为 true
+5. 导航菜单项的 is_nav_menu 设为 true，importance 设为 9-10"""
 
     ANALYZE_ELEMENTS_PROMPT = """这是网页截图，页面上的可交互元素已被标记：
 - [#ID]：输入框
@@ -83,17 +81,11 @@ class PageAnalyzer:
 }}
 
 重要规则：
-1. 侧边栏导航菜单项（如：数据总览、任务管理、测试用例等）的 is_nav_menu 设为 true，explore_priority 设为 9-10
-2. 顶部导航菜单项也是高优先级
-3. **CRUD 操作按钮必须识别**：
-   - 新建/创建/添加/新增 -> crud_type="create", is_crud_action=true, explore_priority=9
-   - 查看/详情/查询/搜索 -> crud_type="read", is_crud_action=true, explore_priority=8
-   - 编辑/修改/更新 -> crud_type="update", is_crud_action=true, explore_priority=8
-   - 删除/移除/作废 -> crud_type="delete", is_crud_action=true, explore_priority=7
-4. 列表页中的操作列按钮（编辑、删除、查看详情等）必须标记为高优先级
-5. 表格行内的操作链接也需要识别
-6. 普通无操作意义的按钮和链接的 explore_priority 设为 3-5
-7. 只返回值得探索的元素，忽略纯装饰性元素"""
+1. 侧边栏导航菜单项的 is_nav_menu 设为 true，explore_priority 设为 9-10
+2. CRUD 操作按钮必须识别
+3. 列表页中的操作列按钮必须标记为高优先级
+4. 普通按钮的 explore_priority 设为 3-5
+5. 只返回值得探索的元素"""
 
     def __init__(self, llm_client: VisionLLMClient):
         self.llm = llm_client
@@ -106,25 +98,15 @@ class PageAnalyzer:
                 self.ANALYZE_PAGE_PROMPT
             )
             
-            print(f"    [DEBUG] LLM analyze_page 响应长度: {len(response) if response else 0}")
-            if response:
-                print(f"    [DEBUG] LLM 响应前200字符: {response[:200]}...")
-            
-            # 解析 JSON 响应
             if response:
                 json_match = re.search(r'\{[\s\S]*\}', response)
                 if json_match:
                     return json.loads(json_match.group())
-                else:
-                    print(f"    [DEBUG] 无法从响应中提取 JSON")
-        except json.JSONDecodeError as e:
-            print(f"    [DEBUG] JSON 解析失败: {e}")
+        except json.JSONDecodeError:
+            pass
         except Exception as e:
-            print(f"    分析页面失败: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"分析页面失败: {e}")
         
-        # 返回默认值
         return {
             "page_type": "unknown",
             "page_description": "无法分析的页面",
@@ -145,25 +127,15 @@ class PageAnalyzer:
             prompt = self.ANALYZE_ELEMENTS_PROMPT.format(page_description=page_description)
             response = await self.llm.analyze_with_vision(screenshot, prompt)
             
-            print(f"    [DEBUG] LLM analyze_elements 响应长度: {len(response) if response else 0}")
-            if response:
-                print(f"    [DEBUG] LLM 响应前300字符: {response[:300]}...")
-            
             if response:
                 json_match = re.search(r'\{[\s\S]*\}', response)
                 if json_match:
                     data = json.loads(json_match.group())
-                    elements = data.get("elements", [])
-                    print(f"    [DEBUG] 解析到 {len(elements)} 个元素")
-                    return elements
-                else:
-                    print(f"    [DEBUG] 无法从响应中提取 JSON")
-        except json.JSONDecodeError as e:
-            print(f"    [DEBUG] JSON 解析失败: {e}")
+                    return data.get("elements", [])
+        except json.JSONDecodeError:
+            pass
         except Exception as e:
-            print(f"    分析元素失败: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"分析元素失败: {e}")
         
         return []
 
@@ -182,11 +154,10 @@ class SiteExplorer:
         self.session_id = str(uuid.uuid4())[:8]
         self.current_site: Optional[Site] = None
         self.visited_urls: Set[str] = set()
-        self.visited_items: Set[str] = set()  # 已访问的导航/操作项
-        self.pending_items: List[Dict] = []   # 待探索的项目（导航菜单 + CRUD 操作）
+        self.visited_items: Set[str] = set()
+        self.pending_items: List[Dict] = []
         self.exploration_depth = 0
         
-        # 确保截图目录存在
         os.makedirs(config.exploration.screenshot_dir, exist_ok=True)
     
     async def start(self) -> None:
@@ -202,21 +173,10 @@ class SiteExplorer:
         self.db.close()
     
     async def explore_site(self, start_url: str, site_name: str = "") -> Site:
-        """
-        探索整个网站（广度优先探索：导航菜单 -> 页面内 CRUD 操作）
-        
-        Args:
-            start_url: 起始 URL
-            site_name: 网站名称
-            
-        Returns:
-            Site: 网站信息
-        """
-        # 解析域名
+        """探索整个网站"""
         parsed = urlparse(start_url)
         domain = parsed.netloc
         
-        # 创建或获取网站记录
         self.current_site = self.db.get_or_create_site(domain, site_name)
         
         print(f"\n{'='*60}")
@@ -224,15 +184,12 @@ class SiteExplorer:
         print(f"📝 会话 ID: {self.session_id}")
         print(f"{'='*60}\n")
         
-        # 导航到起始页
         await self.browser_manager.goto(start_url)
-        await asyncio.sleep(2)  # 等待页面加载
+        await asyncio.sleep(2)
         
-        # 第一步：分析首页，收集所有导航菜单和操作
-        print("📍 第一阶段：分析页面结构，收集导航菜单和 CRUD 操作...")
+        print("📍 第一阶段：分析页面结构...")
         await self._analyze_and_collect_items()
         
-        # 第二步：依次探索每个项目
         print(f"\n📍 第二阶段：探索所有项目 (共 {len(self.pending_items)} 个待探索)...")
         await self._explore_all_items()
         
@@ -249,13 +206,11 @@ class SiteExplorer:
         page = self.browser_manager.page
         current_url = page.url
         
-        # 记录当前页面
         url_key = self._normalize_url(current_url)
         self.visited_urls.add(url_key)
         
         print(f"\n📄 分析页面: {current_url[:80]}...")
         
-        # 截图分析
         screenshot = await self.browser_manager.screenshot()
         page_info = await self.page_analyzer.analyze_page(screenshot)
         
@@ -263,12 +218,10 @@ class SiteExplorer:
         print(f"   类型: {page_type_str}")
         print(f"   描述: {page_info.get('page_description', '未知')}")
         
-        # 检查侧边栏导航
         if page_info.get("has_sidebar_nav"):
             nav_items = page_info.get("sidebar_nav_items", [])
             print(f"   🧭 发现侧边栏导航: {nav_items}")
         
-        # 保存页面信息
         title = await page.title()
         page_model = PageModel(
             site_id=self.current_site.id,
@@ -282,7 +235,6 @@ class SiteExplorer:
         )
         page_model = self.db.save_page(page_model)
         
-        # 保存截图
         screenshot_path = os.path.join(
             self.config.exploration.screenshot_dir,
             f"{self.session_id}_{page_model.id}.png"
@@ -290,11 +242,8 @@ class SiteExplorer:
         with open(screenshot_path, "wb") as f:
             f.write(screenshot)
         
-        # 标记页面元素并分析
         print("   🏷️ 标记并分析页面元素...")
         tagged_screenshot, tag_to_xpath = await self.page_tagger.tag_page(page)
-        
-        print(f"   📊 标记结果: screenshot={len(tagged_screenshot) if tagged_screenshot else 0} bytes, xpath_count={len(tag_to_xpath) if tag_to_xpath else 0}")
         
         if tagged_screenshot and tag_to_xpath:
             elements_info = await self.page_analyzer.analyze_elements(
@@ -302,12 +251,6 @@ class SiteExplorer:
                 page_info.get("page_description", "")
             )
             
-            print(f"   📊 LLM 返回元素数: {len(elements_info)}")
-            if elements_info:
-                print(f"   📊 第一个元素示例: {elements_info[0]}")
-                print(f"   📊 tag_to_xpath 键类型示例: {list(tag_to_xpath.keys())[:5]}")
-            
-            # 收集导航菜单项和 CRUD 操作
             nav_count = 0
             crud_count = 0
             for elem_info in elements_info:
@@ -321,10 +264,8 @@ class SiteExplorer:
                 crud_type = elem_info.get("crud_type", "none")
                 priority = elem_info.get("explore_priority", 5)
                 
-                # tag_id 可能是 int，但 tag_to_xpath 的键是 int
                 xpath = tag_to_xpath.get(tag_id) or tag_to_xpath.get(str(tag_id)) or tag_to_xpath.get(int(tag_id) if isinstance(tag_id, str) else tag_id)
                 
-                # 保存元素到数据库
                 elem_type_str = elem_info.get("element_type", "other")
                 element = Element(
                     page_id=page_model.id,
@@ -337,8 +278,7 @@ class SiteExplorer:
                 )
                 element = self.db.save_element(element)
                 
-                # 如果是导航菜单项或 CRUD 操作，加入待探索列表
-                item_key = f"{page_model.id}:{semantic_name}"  # 页面+名称作为唯一键
+                item_key = f"{page_model.id}:{semantic_name}"
                 should_explore = (is_nav or is_crud or priority >= 7) and xpath and item_key not in self.visited_items
                 
                 if should_explore:
@@ -357,17 +297,12 @@ class SiteExplorer:
                     
                     if is_nav:
                         nav_count += 1
-                        print(f"      🧭 导航项: {semantic_name} (优先级: {priority})")
                     elif is_crud:
                         crud_count += 1
-                        print(f"      🔧 CRUD操作 [{crud_type}]: {semantic_name} (优先级: {priority})")
-                    else:
-                        print(f"      📌 操作项: {semantic_name} (优先级: {priority})")
             
             if nav_count > 0 or crud_count > 0:
                 print(f"   📊 收集: {nav_count} 个导航项, {crud_count} 个 CRUD 操作")
             
-            # 按优先级排序（导航优先，然后 CRUD）
             self.pending_items.sort(key=lambda x: (
                 10 if x["item_type"] == "nav" else 
                 9 if x["crud_type"] == "create" else
@@ -376,13 +311,12 @@ class SiteExplorer:
                 x["priority"]
             ), reverse=True)
         
-        # 清理标签
         await self.page_tagger.cleanup(page)
     
     async def _explore_all_items(self) -> None:
-        """探索所有收集到的项目（导航菜单 + CRUD 操作）"""
+        """探索所有收集到的项目"""
         explored_count = 0
-        max_items = self.config.exploration.max_pages * 3  # 增加探索上限
+        max_items = self.config.exploration.max_pages * 3
         
         while self.pending_items and explored_count < max_items:
             item = self.pending_items.pop(0)
@@ -407,16 +341,11 @@ class SiteExplorer:
                 print(f"   类型: {item['crud_type'].upper()}")
             print(f"{'─'*50}")
             
-            # 首先确保在正确的页面上
             await self._ensure_on_source_page(item)
-            
-            # 点击项目
             success = await self._click_item(item)
             
             if success:
-                await asyncio.sleep(2)  # 等待页面加载或弹窗出现
-                
-                # 分析新页面/弹窗并收集更多项目
+                await asyncio.sleep(2)
                 await self._analyze_after_click(item)
     
     async def _ensure_on_source_page(self, item: Dict) -> None:
@@ -425,25 +354,21 @@ class SiteExplorer:
         source_url = item.get("source_url", "")
         current_url = page.url
         
-        # 如果不在源页面，导航回去
         if source_url and self._normalize_url(current_url) != self._normalize_url(source_url):
             print(f"   📍 返回源页面: {source_url[:50]}...")
             await self.browser_manager.goto(source_url)
             await asyncio.sleep(2)
     
     async def _click_item(self, item: Dict) -> bool:
-        """点击项目（导航菜单或 CRUD 按钮）"""
+        """点击项目"""
         page = self.browser_manager.page
         xpath = item["xpath"]
         
         try:
-            # 先清理之前的标签
             await self.page_tagger.cleanup(page)
             
-            # 尝试点击
             elem = page.locator(f"xpath={xpath}").first
             
-            # 检查元素是否存在且可见
             try:
                 visible = await elem.is_visible(timeout=3000)
             except Exception:
@@ -451,7 +376,6 @@ class SiteExplorer:
             
             if not visible:
                 print(f"   ⚠️ 元素不可见，尝试重新定位...")
-                # 尝试通过文本查找
                 text = item.get("text") or item["name"]
                 elem = page.get_by_text(text, exact=False).first
             
@@ -469,17 +393,14 @@ class SiteExplorer:
         current_url = page.url
         url_key = self._normalize_url(current_url)
         
-        # 检查是否有弹窗/模态框
         has_modal = await self._check_for_modal()
         
-        # 检查是否是新页面
         is_new_page = url_key not in self.visited_urls
         if is_new_page:
             self.visited_urls.add(url_key)
         
         print(f"   📄 当前状态: {'弹窗' if has_modal else '页面'} - {current_url[:60]}...")
         
-        # 截图分析
         screenshot = await self.browser_manager.screenshot()
         page_info = await self.page_analyzer.analyze_page(screenshot)
         
@@ -488,7 +409,6 @@ class SiteExplorer:
         print(f"   类型: {page_type_str}")
         print(f"   描述: {page_desc}")
         
-        # 保存页面/弹窗信息
         title = await page.title()
         page_model = PageModel(
             site_id=self.current_site.id,
@@ -502,7 +422,6 @@ class SiteExplorer:
         )
         page_model = self.db.save_page(page_model)
         
-        # 保存截图
         screenshot_path = os.path.join(
             self.config.exploration.screenshot_dir,
             f"{self.session_id}_{page_model.id}.png"
@@ -510,7 +429,6 @@ class SiteExplorer:
         with open(screenshot_path, "wb") as f:
             f.write(screenshot)
         
-        # 记录操作
         action_type = ActionType.CLICK
         action = Action(
             site_id=self.current_site.id,
@@ -522,7 +440,6 @@ class SiteExplorer:
         )
         self.db.save_action(action)
         
-        # 记录探索日志
         self.db.save_exploration_log(ExplorationLog(
             site_id=self.current_site.id,
             session_id=self.session_id,
@@ -532,7 +449,6 @@ class SiteExplorer:
             screenshot_path=screenshot_path
         ))
         
-        # 分析新页面/弹窗中的元素
         if is_new_page or has_modal:
             print("   🏷️ 分析页面元素...")
             tagged_screenshot, tag_to_xpath = await self.page_tagger.tag_page(page)
@@ -543,7 +459,6 @@ class SiteExplorer:
                     page_desc
                 )
                 
-                # 收集新的项目
                 new_items = 0
                 for elem_info in elements_info:
                     tag_id = elem_info.get("tag_id")
@@ -557,7 +472,6 @@ class SiteExplorer:
                     priority = elem_info.get("explore_priority", 5)
                     xpath = tag_to_xpath.get(tag_id)
                     
-                    # 保存元素
                     elem_type_str = elem_info.get("element_type", "other")
                     element = Element(
                         page_id=page_model.id,
@@ -570,12 +484,10 @@ class SiteExplorer:
                     )
                     element = self.db.save_element(element)
                     
-                    # 如果是新的项目，加入待探索列表
                     item_key = f"{page_model.id}:{semantic_name}"
                     should_explore = (is_nav or is_crud or priority >= 7) and xpath and item_key not in self.visited_items
                     
                     if should_explore:
-                        # 检查是否已在待探索列表中
                         existing = any(n["name"] == semantic_name and n["source_page_id"] == page_model.id 
                                        for n in self.pending_items)
                         if not existing:
@@ -595,21 +507,17 @@ class SiteExplorer:
                 
                 if new_items > 0:
                     print(f"   📌 发现 {new_items} 个新项目")
-                    # 重新排序
                     self.pending_items.sort(key=lambda x: x["priority"], reverse=True)
             
-            # 清理标签
             await self.page_tagger.cleanup(page)
         
-        # 如果是弹窗，关闭它
         if has_modal:
             await self._close_modal()
     
     async def _check_for_modal(self) -> bool:
-        """检查页面上是否有弹窗/模态框"""
+        """检查页面上是否有弹窗"""
         page = self.browser_manager.page
         
-        # 常见的弹窗选择器
         modal_selectors = [
             ".ant-modal",
             ".el-dialog",
@@ -633,7 +541,6 @@ class SiteExplorer:
         """关闭弹窗"""
         page = self.browser_manager.page
         
-        # 尝试点击关闭按钮
         close_selectors = [
             ".ant-modal-close",
             ".el-dialog__close",
@@ -655,7 +562,6 @@ class SiteExplorer:
             except Exception:
                 continue
         
-        # 如果找不到关闭按钮，按 ESC
         try:
             await page.keyboard.press("Escape")
             print("   ✓ ESC 关闭弹窗")
@@ -663,9 +569,8 @@ class SiteExplorer:
             pass
     
     def _normalize_url(self, url: str) -> str:
-        """标准化 URL（保留 hash 路由，去除查询参数）"""
+        """标准化 URL"""
         parsed = urlparse(url)
-        # 对于 SPA 应用，保留 fragment（hash）
         if parsed.fragment:
             return f"{parsed.scheme}://{parsed.netloc}{parsed.path}#{parsed.fragment.split('?')[0]}"
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -696,8 +601,8 @@ URL: {current_url}
 
 请分析任务，返回 JSON 格式的操作计划：
 {{
-    "can_plan": true/false,  // 是否能根据记忆规划
-    "confidence": 0.0-1.0,   // 置信度
+    "can_plan": true/false,
+    "confidence": 0.0-1.0,
     "plan": [
         {{
             "step": 1,
@@ -724,14 +629,12 @@ URL: {current_url}
         current_page_desc: str
     ) -> Dict:
         """根据记忆规划任务"""
-        # 获取网站记忆
         pages = self.db.get_pages_by_site(site.id)
         pages_desc = "\n".join([
             f"- [{p.page_type.value}] {p.semantic_description} ({p.url_pattern})"
             for p in pages[:20]
         ]) or "暂无记录"
         
-        # 获取已知操作
         actions_desc_list = []
         for page in pages[:10]:
             actions = self.db.get_actions_from_page(page.id)
@@ -741,7 +644,6 @@ URL: {current_url}
                 )
         actions_desc = "\n".join(actions_desc_list) or "暂无记录"
         
-        # 获取已有任务路径
         task_paths = self.db.get_task_paths_by_site(site.id)
         paths_desc = "\n".join([
             f"- {tp.task_description}"

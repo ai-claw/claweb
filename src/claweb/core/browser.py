@@ -1,11 +1,11 @@
 """
 浏览器管理模块
 """
-import asyncio
+
 from typing import Optional
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 
-from config import BrowserConfig
+from claweb.core.config import BrowserConfig
 
 
 class BrowserManager:

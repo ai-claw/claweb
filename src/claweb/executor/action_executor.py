@@ -1,16 +1,16 @@
 """
 动作执行器模块
 """
+
 import re
 import asyncio
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from playwright.async_api import Page
 
 
 class ActionExecutor:
     """动作执行器，解析并执行 LLM 返回的操作指令"""
 
-    # 动作解析正则 - 支持带符号前缀的标签如 [#12], [$15], [@10]
     CLICK_PATTERN = re.compile(r"CLICK\s*\[[@#$%]?(\d+)\]", re.IGNORECASE)
     TYPE_PATTERN = re.compile(r'TYPE\s*\[[@#$%]?(\d+)\]\s*["\'](.+?)["\']', re.IGNORECASE)
     SCROLL_PATTERN = re.compile(r"SCROLL\s+(UP|DOWN)", re.IGNORECASE)
@@ -25,12 +25,7 @@ class ActionExecutor:
     async def execute(
         self, action: str, tag_to_xpath: Dict[int, str]
     ) -> Tuple[bool, str]:
-        """
-        执行动作
-        
-        Returns:
-            Tuple[bool, str]: (是否完成任务, 执行结果描述)
-        """
+        """执行动作"""
         action = action.strip()
 
         if self.DONE_PATTERN.search(action):
@@ -44,7 +39,7 @@ class ActionExecutor:
 
         if match := self.WAIT_PATTERN.search(action):
             seconds = int(match.group(1)) if match.group(1) else 2
-            seconds = min(seconds, 30)  # 最多等 30 秒
+            seconds = min(seconds, 30)
             await asyncio.sleep(seconds)
             return False, f"等待 {seconds} 秒"
 

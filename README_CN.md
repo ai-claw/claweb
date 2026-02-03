@@ -1,218 +1,171 @@
-# Claweb
+<div align="center">
 
-<p align="center">
-  <strong>🕷️ 基于视觉大模型的 Web 自动化 Agent</strong>
-</p>
+# 🕷️ Claweb
 
-<p align="center">
-  <a href="#特性">特性</a> •
-  <a href="#快速开始">快速开始</a> •
-  <a href="#使用方法">使用方法</a> •
-  <a href="#架构设计">架构设计</a> •
-  <a href="#贡献指南">贡献指南</a>
-</p>
+**基于 Tarsier 和视觉 LLM 的智能 Web 自动化 Agent**
 
-[English](README.md) | 中文
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Playwright](https://img.shields.io/badge/Playwright-1.40+-orange.svg)](https://playwright.dev/)
+
+[English](README.md) | [中文](README_CN.md)
+
+</div>
 
 ---
 
-Claweb 是一个基于视觉大模型的 Web 自动化 Agent，利用 [Tarsier](https://github.com/reworkd/tarsier) 进行页面元素标注，让 AI 能够"看懂"网页并执行自动化操作。
+## ✨ 特性
 
-与传统的基于选择器的自动化工具不同，Claweb 通过视觉理解来识别页面元素，无需编写脆弱的 CSS/XPath 选择器，能够适应页面结构的变化。
+- 🧠 **视觉 LLM 驱动** - 使用 GPT-4V/Claude 进行智能页面理解
+- 🏷️ **Tarsier 集成** - 自动元素标记和识别
+- 🧭 **智能导航** - 自然语言任务执行
+- 📚 **记忆系统** - 学习和记忆网站结构
+- 🔍 **自动探索** - 自主探索和映射网站
+- 💾 **持久化存储** - 支持 SQLite/MySQL 知识库
 
-## 特性
-
-- **视觉驱动**：基于 Vision LLM（如 GPT-4o）理解页面内容，无需硬编码选择器
-- **智能标注**：使用 Tarsier 自动标注页面可交互元素，建立视觉与 DOM 的映射
-- **记忆系统**：自动学习网站结构，记住操作路径，下次执行更快更准
-- **自动探索**：支持自动探索网站功能，发现导航菜单、CRUD 操作等
-- **多模式运行**：
-  - 交互模式：实时输入指令
-  - 任务模式：执行单次任务
-  - 探索模式：自动学习网站
-- **可扩展存储**：支持 SQLite（默认）和 MySQL
-
-## 快速开始
-
-### 环境要求
-
-- Python 3.10+
-- Node.js（Playwright 依赖）
-
-### 安装
+## 📦 安装
 
 ```bash
 # 克隆仓库
 git clone https://github.com/ai-claw/claweb.git
 cd claweb
 
-# 创建虚拟环境
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# 使用 pip 安装（开发模式）
+pip install -e .
 
-# 安装依赖
-pip install -r requirements.txt
+# 或从 PyPI 安装（发布后）
+pip install claweb
 
 # 安装 Playwright 浏览器
 playwright install chromium
 ```
 
-### 配置
+## ⚙️ 配置
+
+创建 `.env` 文件：
 
 ```bash
-# 复制配置模板
 cp .env.example .env
-
-# 编辑配置文件
-vim .env
 ```
 
-必要配置：
+配置参数：
+
 ```env
-LLM_API_KEY=your-api-key-here
-LLM_MODEL=gpt-4o  # 或其他支持视觉的模型
+# LLM 配置（必需）
+LLM_API_BASE=https://api.openai.com/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=gpt-4o
+
+# 浏览器配置
+HEADLESS=false
+BROWSER_WIDTH=1280
+BROWSER_HEIGHT=800
+
+# 数据库配置
+DB_TYPE=sqlite
+DB_PATH=web_agent_memory.db
 ```
 
-## 使用方法
+## 🚀 快速开始
 
-### 交互模式
+### 命令行使用
 
 ```bash
-python main.py
+# 交互模式
+claweb --url https://example.com
+
+# 任务模式
+claweb --url https://example.com --task "搜索产品"
+
+# 探索模式
+claweb --url https://example.com --explore --site-name "示例网站"
 ```
 
-可用命令：
-- `goto <url>` - 导航到指定网址
-- `do <指令>` - 执行自然语言指令
-- `explore` - 自动探索当前网站
-- `memory` - 显示记忆统计
-- `wait` - 等待手动操作（登录、验证码等）
-- `quit` - 退出
+### Python API
 
-### 任务模式
+```python
+import asyncio
+from claweb import WebAgent, load_config
 
-执行单次任务：
+async def main():
+    config = load_config()
+    agent = WebAgent(config)
+    
+    await agent.start()
+    await agent.goto("https://example.com")
+    
+    # 执行任务
+    result = await agent.execute_task("点击登录按钮")
+    print(result)
+    
+    await agent.stop()
 
-```bash
-python main.py --url "https://example.com" --task "点击登录按钮"
+asyncio.run(main())
 ```
 
-### 探索模式
-
-自动探索网站并建立记忆：
-
-```bash
-python main.py --url "https://example.com/dashboard" --explore --site-name "示例网站"
-```
-
-### 使用示例
-
-```bash
-# 登录网站
-python main.py --url "https://example.com/login" \
-  --task "使用用户名 admin@test.com 密码 123456 登录"
-
-# 探索后台管理
-python main.py --url "https://admin.example.com" --explore
-
-# 无记忆模式执行
-python main.py --url "https://example.com" --no-memory \
-  --task "点击搜索按钮"
-```
-
-## 架构设计
+## 📁 项目结构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         用户输入                             │
-│                    （自然语言任务描述）                        │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        WebAgent                             │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │   浏览器     │  │   页面标注    │  │   视觉大模型      │  │
-│  │   管理器     │  │  (Tarsier)   │  │   客户端          │  │
-│  └──────┬──────┘  └──────┬───────┘  └─────────┬─────────┘  │
-│         │                │                     │            │
-│         ▼                ▼                     ▼            │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                  动作执行器                           │   │
-│  │   CLICK / TYPE / SCROLL / GOTO / WAIT / PAUSE       │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       记忆系统                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │   网站   │  │   页面    │  │   元素   │  │  任务路径 │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-└─────────────────────────────────────────────────────────────┘
+claweb/
+├── src/
+│   └── claweb/
+│       ├── __init__.py         # 包导出
+│       ├── cli.py              # CLI 入口
+│       ├── core/               # 核心模块
+│       │   ├── agent.py        # WebAgent 主类
+│       │   ├── browser.py      # 浏览器管理
+│       │   └── config.py       # 配置管理
+│       ├── llm/                # LLM 集成
+│       │   └── client.py       # 视觉 LLM 客户端
+│       ├── tagger/             # 页面标记
+│       │   └── page_tagger.py  # Tarsier 集成
+│       ├── executor/           # 动作执行
+│       │   └── action_executor.py
+│       ├── explorer/           # 网站探索
+│       │   └── explorer.py
+│       ├── storage/            # 数据持久化
+│       │   ├── database.py     # 数据库抽象层
+│       │   └── models.py       # 数据模型
+│       └── utils/              # 工具函数
+├── tests/                      # 测试套件
+├── pyproject.toml              # 项目配置
+├── .env.example                # 环境变量模板
+└── README.md
 ```
 
-### 核心组件
-
-| 组件 | 说明 |
-|-----|------|
-| `agent.py` | 核心 WebAgent 类，协调各组件 |
-| `browser.py` | Playwright 浏览器管理 |
-| `page_tagger.py` | Tarsier 集成，元素标注 |
-| `llm_client.py` | 视觉大模型客户端 |
-| `action_executor.py` | 解析执行 LLM 命令 |
-| `explorer.py` | 网站探索与学习 |
-| `models.py` | 记忆系统数据模型 |
-| `database.py` | 数据库抽象层 |
-
-### 支持的操作
+## 🎮 支持的操作
 
 | 命令 | 说明 | 示例 |
-|-----|------|------|
-| `CLICK [ID]` | 点击元素 | `CLICK [$5]` |
-| `TYPE [ID] "文本"` | 输入文本 | `TYPE [#3] "hello"` |
+|------|------|------|
+| `CLICK [ID]` | 点击元素 | `CLICK [5]` |
+| `TYPE [ID] "文本"` | 输入文本 | `TYPE [3] "你好"` |
 | `SCROLL UP/DOWN` | 滚动页面 | `SCROLL DOWN` |
-| `GOTO "url"` | 导航 | `GOTO "https://..."` |
+| `GOTO "url"` | 导航跳转 | `GOTO "https://..."` |
 | `WAIT n` | 等待秒数 | `WAIT 3` |
-| `PAUSE` | 等待手动操作 | `PAUSE` |
+| `PAUSE` | 暂停等待人工操作 | `PAUSE` |
 | `DONE` | 任务完成 | `DONE` |
 
-## 工作原理
+## 🔧 开发
 
-1. **页面标注**：Tarsier 为可交互元素添加可见标签（`[#1]`、`[$2]` 等）
-2. **截图捕获**：获取带标签的页面截图
-3. **LLM 分析**：将截图和元素信息发送给视觉大模型
-4. **动作决策**：LLM 输出单个操作命令
-5. **执行操作**：通过 Playwright 执行操作
-6. **更新记忆**：记录成功的操作供后续使用
-7. **循环**：重复直到任务完成
+```bash
+# 安装开发依赖
+pip install -e ".[dev]"
 
-## 配置参考
+# 运行测试
+pytest
 
-| 变量 | 说明 | 默认值 |
-|-----|------|-------|
-| `LLM_API_BASE` | LLM API 地址 | `https://api.openai.com/v1` |
-| `LLM_API_KEY` | API 密钥 | （必填） |
-| `LLM_MODEL` | 模型名称 | `gpt-4o` |
-| `HEADLESS` | 无头模式 | `false` |
-| `BROWSER_WIDTH` | 浏览器宽度 | `1280` |
-| `BROWSER_HEIGHT` | 浏览器高度 | `800` |
-| `DB_TYPE` | 数据库类型 | `sqlite` |
-| `DB_PATH` | SQLite 文件路径 | `web_agent_memory.db` |
-| `EXPLORE_MAX_PAGES` | 最大探索页面数 | `50` |
-| `EXPLORE_MAX_DEPTH` | 最大探索深度 | `5` |
-| `SCREENSHOT_DIR` | 截图保存目录 | `screenshots` |
+# 代码格式化
+black src/
+isort src/
 
-## 贡献指南
+# 类型检查
+mypy src/
+```
 
-欢迎贡献！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
-
-## 许可证
+## 📄 许可证
 
 MIT License - 详见 [LICENSE](LICENSE)
 
-## 致谢
+## 🤝 贡献
 
-- [Tarsier](https://github.com/reworkd/tarsier) - 网页元素标注
-- [Playwright](https://playwright.dev/) - 浏览器自动化
-- [OpenAI](https://openai.com/) - 视觉语言模型
+欢迎贡献！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。

@@ -3,13 +3,12 @@
 """
 
 import json
-import os
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from urllib.parse import urlparse
 
-from models import (
+from claweb.storage.models import (
     Site, Page, Element, Action, TaskPath, ExplorationLog,
     PageType, ElementType, ActionType
 )
@@ -30,7 +29,6 @@ class DatabaseInterface(ABC):
     def init_schema(self) -> None:
         pass
     
-    # Site 操作
     @abstractmethod
     def get_or_create_site(self, domain: str, name: str = "", description: str = "") -> Site:
         pass
@@ -39,7 +37,6 @@ class DatabaseInterface(ABC):
     def get_site_by_domain(self, domain: str) -> Optional[Site]:
         pass
     
-    # Page 操作
     @abstractmethod
     def save_page(self, page: Page) -> Page:
         pass
@@ -56,7 +53,6 @@ class DatabaseInterface(ABC):
     def find_similar_page(self, site_id: int, url: str, title: str) -> Optional[Page]:
         pass
     
-    # Element 操作
     @abstractmethod
     def save_element(self, element: Element) -> Element:
         pass
@@ -69,7 +65,6 @@ class DatabaseInterface(ABC):
     def find_element_by_semantic(self, page_id: int, semantic_name: str) -> Optional[Element]:
         pass
     
-    # Action 操作
     @abstractmethod
     def save_action(self, action: Action) -> Action:
         pass
@@ -82,7 +77,6 @@ class DatabaseInterface(ABC):
     def get_action_to_page(self, source_page_id: int, target_page_id: int) -> Optional[Action]:
         pass
     
-    # TaskPath 操作
     @abstractmethod
     def save_task_path(self, task_path: TaskPath) -> TaskPath:
         pass
@@ -95,7 +89,6 @@ class DatabaseInterface(ABC):
     def get_task_paths_by_site(self, site_id: int) -> List[TaskPath]:
         pass
     
-    # ExplorationLog 操作
     @abstractmethod
     def save_exploration_log(self, log: ExplorationLog) -> ExplorationLog:
         pass
@@ -282,7 +275,6 @@ class SQLiteDatabase(DatabaseInterface):
         return page
     
     def get_page_by_url(self, site_id: int, url: str) -> Optional[Page]:
-        # 简单匹配：去除查询参数后比较
         parsed = urlparse(url)
         url_base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         
@@ -299,29 +291,21 @@ class SQLiteDatabase(DatabaseInterface):
         return [self._row_to_page(row) for row in self.cursor.fetchall()]
     
     def find_similar_page(self, site_id: int, url: str, title: str) -> Optional[Page]:
-        parsed = urlparse(url)
-        path_parts = parsed.path.strip('/').split('/')
-        
-        # 尝试匹配 URL 模式
         self.cursor.execute("SELECT * FROM pages WHERE site_id = ?", (site_id,))
         for row in self.cursor.fetchall():
             page = self._row_to_page(row)
-            # 简单的模式匹配
             if self._url_matches_pattern(url, page.url_pattern):
                 return page
-            # 标题匹配
             if title and page.title_pattern and title.lower() in page.title_pattern.lower():
                 return page
         return None
     
     def _url_matches_pattern(self, url: str, pattern: str) -> bool:
-        """简单的 URL 模式匹配"""
         if not pattern:
             return False
         parsed_url = urlparse(url)
         parsed_pattern = urlparse(pattern)
         
-        # 路径匹配（忽略 ID 等动态部分）
         url_parts = parsed_url.path.strip('/').split('/')
         pattern_parts = parsed_pattern.path.strip('/').split('/')
         
@@ -331,7 +315,6 @@ class SQLiteDatabase(DatabaseInterface):
         for u, p in zip(url_parts, pattern_parts):
             if p == '*' or p == u:
                 continue
-            # 数字 ID 可以匹配
             if u.isdigit() and p.isdigit():
                 continue
             return False
@@ -484,7 +467,6 @@ class SQLiteDatabase(DatabaseInterface):
         return task_path
     
     def find_task_path(self, site_id: int, task_description: str) -> Optional[TaskPath]:
-        # 简单的关键词匹配
         keywords = task_description.lower().split()
         self.cursor.execute("SELECT * FROM task_paths WHERE site_id = ?", (site_id,))
         
@@ -658,11 +640,8 @@ class MySQLDatabase(DatabaseInterface):
                 try:
                     self.cursor.execute(statement)
                 except Exception:
-                    pass  # 忽略已存在的表
+                    pass
         self.conn.commit()
-    
-    # MySQL 的实现与 SQLite 类似，只是 SQL 语法略有不同
-    # 为简洁起见，这里使用代理模式复用 SQLite 的逻辑
     
     def get_or_create_site(self, domain: str, name: str = "", description: str = "") -> Site:
         self.cursor.execute("SELECT * FROM sites WHERE domain = %s", (domain,))
@@ -932,12 +911,7 @@ class MySQLDatabase(DatabaseInterface):
 
 
 def create_database(config) -> DatabaseInterface:
-    """根据配置创建数据库实例
-    
-    Args:
-        config: dict 或 DatabaseConfig 对象
-    """
-    # 支持 dict 和 DatabaseConfig
+    """根据配置创建数据库实例"""
     if hasattr(config, 'type'):
         db_type = config.type.lower()
         host = getattr(config, 'host', 'localhost')
