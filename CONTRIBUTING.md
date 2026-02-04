@@ -89,30 +89,43 @@ test: add unit tests for page analyzer
 
 ```
 claweb/
-├── main.py              # Entry point
-├── agent.py             # Core WebAgent
-├── browser.py           # Browser management
-├── page_tagger.py       # Tarsier integration
-├── llm_client.py        # LLM client
-├── action_executor.py   # Action parsing & execution
-├── explorer.py          # Site exploration
-├── models.py            # Data models
-├── database.py          # Database layer
-├── config.py            # Configuration
-└── test_explorer.py     # Tests
+├── src/
+│   └── claweb/
+│       ├── __init__.py         # Package exports
+│       ├── cli.py              # CLI entry point
+│       ├── core/               # Core modules
+│       │   ├── agent.py        # WebAgent main class
+│       │   ├── browser.py      # Browser manager
+│       │   └── config.py       # Configuration
+│       ├── llm/                # LLM integration
+│       │   └── client.py       # Vision LLM client
+│       ├── tagger/             # Page tagging
+│       │   └── page_tagger.py  # Tarsier integration
+│       ├── executor/           # Action execution
+│       │   └── action_executor.py
+│       ├── explorer/           # Site exploration
+│       │   └── explorer.py
+│       ├── storage/            # Data persistence
+│       │   ├── database.py     # DB abstraction
+│       │   └── models.py       # Data models
+│       └── utils/              # Utilities
+├── tests/                      # Test suite
+├── pyproject.toml              # Project configuration
+├── .env.example                # Environment template
+└── README.md
 ```
 
 ## Testing
 
 ```bash
 # Run all tests
-python -m pytest -v
+pytest
 
 # Run specific test
-python -m pytest test_explorer.py::test_page_analyzer -v
+pytest tests/test_agent.py -v
 
 # Run with coverage
-python -m pytest --cov=. -v
+pytest --cov=src/claweb -v
 ```
 
 ## Areas for Contribution
